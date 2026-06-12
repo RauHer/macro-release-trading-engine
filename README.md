@@ -33,6 +33,8 @@ The initial catalog covers:
 - expected asset sensitivity model
 - manual forecast/actual entry support
 - public-source adapter interface
+- normalized CSV calendar ingestion
+- generic public HTML-table calendar ingestion
 - surprise scoring
 - revision scoring
 - market-confirmation scoring hooks
@@ -55,9 +57,27 @@ pip install -r requirements.txt
 python -m macro_engine.cli countries
 python -m macro_engine.cli catalog
 python -m macro_engine.cli catalog --impact high
+python -m macro_engine.cli calendar-view --country US --impact high
+python -m macro_engine.cli calendar-import --date 2026-06-11 --csv data/manual_forecasts/example_g10_calendar.csv
+python -m macro_engine.cli calendar-import --date 2026-06-11 --url "https://example.com/economic-calendar" --source-name public_calendar
 python -m macro_engine.cli pre --country US --event CPI
 python -m macro_engine.cli score --country US --event CPI --actual 3.4 --forecast 3.2 --previous 3.1
 python -m macro_engine.cli report --country US --event CPI --actual 3.4 --forecast 3.2 --previous 3.1
+```
+
+## Calendar Ingestion
+
+Phase 2 intentionally supports two ingestion paths:
+
+1. **Normalized CSV** — the reliable path. Use this for manually curated or exported calendar rows.
+2. **Generic HTML table parser** — a best-effort public-web parser for pages that expose ordinary HTML tables.
+
+The generic parser is not expected to work on every public calendar. JavaScript-heavy pages, anti-bot-protected pages, and pages with non-tabular calendar widgets may require a custom adapter.
+
+Normalized CSV columns:
+
+```text
+country_code,event_code,name,scheduled_at,impact,forecast,previous,actual,unit,source,source_url,notes
 ```
 
 ## Development Roadmap
@@ -66,7 +86,7 @@ python -m macro_engine.cli report --country US --event CPI --actual 3.4 --foreca
 Completed in the initial scaffold.
 
 ### Phase 2 — Calendar Ingestion
-Add adapters for public economic calendar pages. These should be isolated modules so one broken website cannot break the whole engine.
+In progress. The project now supports normalized CSV imports and a generic public HTML-table parser. Next step: add source-specific adapters for one or two selected public calendars.
 
 ### Phase 3 — Official Actual-Data Fetchers
 Add official-source fetchers by country and agency.
