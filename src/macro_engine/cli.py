@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from dataclasses import asdict
 from datetime import date
-from typing import Any
+from typing import Any, Callable
 
 from .calendar_impact import (
     build_auto_calendar_cluster_impact,
@@ -94,6 +95,37 @@ def _build_cluster_releases(args: argparse.Namespace) -> list[MacroRelease]:
         )
         for i, event_code in enumerate(events)
     ]
+
+
+def _poll_until_ready(action: Callable[[], Any], wait_seconds: int, poll_seconds: int) -> Any:
+    deadline = time.time() + max(0, wait_seconds)
+    attempt = 1
+    last_error: ValueError | None = None
+    while True:
+        try:
+            return action()
+        except ValueError as exc:
+            last_error = exc
+            if wait_seconds <= 0 or time.time() >= deadline:
+                raise
+            remaining = max(0, int(deadline - time.time()))
+            print(f"Actual not posted yet. Attempt {attempt}. Retrying in {poll_seconds}s. Remaining wait: {remaining}s.")
+            time.sleep(max(1, poll_seconds))
+            attempt += 1
+    if last_error is not None:
+        raise last_error
+
+
+def _print_pending_actual_error(exc: ValueError) -> None:
+    print("PENDING ACTUAL VALUE")
+    print(str(exc))
+    print("\nWhat this means:")
+    print("- The engine refreshed the source successfully enough to find the event row.")
+    print("- The source has not populated the actual value in the calendar feed yet.")
+    print("- The engine will not invent or guess the actual number.")
+    print("\nNext options:")
+    print("- Re-run with polling, for example: --wait-seconds 300 --poll-seconds 15")
+    print("- Or use the manual fallback only if you verify the actual from a trusted source.")
 
 
 def cmd_countries(_: argparse.Namespace) -> None:
@@ -279,14 +311,22 @@ def cmd_calendar_cluster_impact(args: argparse.Namespace) -> None:
 
 def cmd_auto_calendar_symbol_impact(args: argparse.Namespace) -> None:
     target = _parse_date(args.date)
-    result = build_auto_calendar_symbol_impact(
-        preset=args.preset,
-        target_date=target,
-        symbol=args.symbol,
-        country=args.country,
-        event=args.event,
-        occurrence=args.occurrence,
-    )
+    try:
+        result = _poll_until_ready(
+            lambda: build_auto_calendar_symbol_impact(
+                preset=args.preset,
+                target_date=target,
+                symbol=args.symbol,
+                country=args.country,
+                event=args.event,
+                occurrence=args.occurrence,
+            ),
+            wait_seconds=args.wait_seconds,
+            poll_seconds=args.poll_seconds,
+        )
+    except ValueError as exc:
+        _print_pending_actual_error(exc)
+        return
     if args.json:
         print(json.dumps(asdict(result), indent=2, default=str))
         return
@@ -297,13 +337,21 @@ def cmd_auto_calendar_symbol_impact(args: argparse.Namespace) -> None:
 def cmd_auto_calendar_cluster_impact(args: argparse.Namespace) -> None:
     target = _parse_date(args.date)
     events = _parse_cluster_events(args.events)
-    result = build_auto_calendar_cluster_impact(
-        preset=args.preset,
-        target_date=target,
-        symbol=args.symbol,
-        country=args.country,
-        events=events,
-    )
+    try:
+        result = _poll_until_ready(
+            lambda: build_auto_calendar_cluster_impact(
+                preset=args.preset,
+                target_date=target,
+                symbol=args.symbol,
+                country=args.country,
+                events=events,
+            ),
+            wait_seconds=args.wait_seconds,
+            poll_seconds=args.poll_seconds,
+        )
+    except ValueError as exc:
+        _print_pending_actual_error(exc)
+        return
     if args.json:
         print(json.dumps(asdict(result), indent=2, default=str))
         return
@@ -454,6 +502,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_auto_symbol.add_argument("--country", required=True)
     p_auto_symbol.add_argument("--event", required=True)
     p_auto_symbol.add_argument("--occurrence", type=int, default=1)
+    p_auto_symbol.add_argument("--wait-seconds", type=int, default=0, help="Keep refreshing until actual posts or this timeout expires")
+    p_auto_symbol.add_argument("--poll-seconds", type=int, default=15, help="Refresh interval used with --wait-seconds")
     p_auto_symbol.add_argument("--json", action="store_true")
     p_auto_symbol.set_defaults(func=cmd_auto_calendar_symbol_impact)
 
@@ -463,6 +513,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_auto_cluster.add_argument("--symbol", required=True)
     p_auto_cluster.add_argument("--country", required=True)
     p_auto_cluster.add_argument("--events", required=True, help="Comma-separated event codes in release order")
+    p_auto_cluster.add_argument("--wait-seconds", type=int, default=0, help="Keep refreshing until all actuals post or this timeout expires")
+    p_auto_cluster.add_argument("--poll-seconds", type=int, default=15, help="Refresh interval used with --wait-seconds")
     p_auto_cluster.add_argument("--json", action="store_true")
     p_auto_cluster.set_defaults(func=cmd_auto_calendar_cluster_impact)
 
