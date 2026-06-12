@@ -21,6 +21,8 @@ class SymbolImpactReport:
     macro_regime_note: str
     symbol_explanation: str
     source_type: str
+    why_direction: str
+    execution_guidance: str
     release_assessment: ReleaseAssessment | None = None
     cluster_assessment: ReleaseClusterAssessment | None = None
     educational_note: str = ""
@@ -126,11 +128,39 @@ def _invalidation(profile: SymbolProfile) -> list[str]:
 
 
 def _regime_note(direction: str) -> str:
-    if "Bearish" in direction:
-        return "In a sticky-inflation, higher-for-longer, or rising-real-yield regime, bearish duration-equity reads deserve more weight. In a liquidity-driven squeeze regime, bearish headline reads require stronger rates/USD confirmation because the first move can fade."
-    if "Bullish" in direction:
-        return "In a disinflationary soft-landing or liquidity-supportive regime, bullish duration-equity reads deserve more weight. In a growth-scare regime, cooler/weaker data can still become equity-bearish if the market shifts from rate relief to recession fear."
-    return "The current macro regime determines whether the release is traded as rate relief, growth risk, inflation pressure, or liquidity stress. Because this read is conditional, market confirmation should dominate."
+    if "Bearish" in direction or "bearish" in direction:
+        return "In a sticky-inflation, higher-for-longer, or rising-real-yield regime, bearish duration-equity reads deserve more weight because the market is already sensitive to Fed-path and discount-rate pressure. In a liquidity-driven squeeze regime, the same bearish headline requires stronger confirmation because the first move can fade if yields and USD do not validate the shock."
+    if "Bullish" in direction or "bullish" in direction:
+        return "In a disinflationary soft-landing or liquidity-supportive regime, bullish duration-equity reads deserve more weight because the market can treat weaker inflation pressure as rate relief. In a growth-scare regime, cooler or weaker data can still become equity-bearish if traders shift from rate relief to recession risk."
+    return "The current macro regime determines whether the release is traded as rate relief, growth risk, inflation pressure, or liquidity stress. Because this read is conditional, market confirmation should dominate the final trade decision."
+
+
+def _why_for_release(assessment: ReleaseAssessment, profile: SymbolProfile, direction: str) -> str:
+    if "Bearish" in direction or "bearish" in direction:
+        return f"The release points toward a negative setup for {profile.symbol} because the announcement is being read as {assessment.trader_interpretation.lower()}. For this symbol, that matters through {', '.join(profile.dominant_channels)}. The bearish read is strongest when the release pushes yields, USD, volatility, or related sector proxies in the same direction."
+    if "Bullish" in direction or "bullish" in direction:
+        return f"The release points toward a positive setup for {profile.symbol} because the announcement is being read as {assessment.trader_interpretation.lower()}. For this symbol, that matters through {', '.join(profile.dominant_channels)}. The bullish read is strongest when the release produces rate relief, weaker USD pressure, supportive breadth, and confirmation from related proxies."
+    return f"The release is not clean enough to justify a forced directional call in {profile.symbol}. The announcement is being read as {assessment.trader_interpretation.lower()}, but the trade needs confirmation through {', '.join(profile.dominant_channels)} before direction should be trusted."
+
+
+def _why_for_cluster(cluster: ReleaseClusterAssessment, profile: SymbolProfile, direction: str) -> str:
+    if "mixed" in cluster.alignment:
+        return f"The cluster is internally mixed, so the correct first response is to avoid forcing a trade. For {profile.symbol}, the key issue is whether the market chooses the hawkish/rates interpretation, the growth-risk interpretation, or ignores the data. Direction should be accepted only after yields, USD, volatility, breadth, and {profile.symbol} itself resolve the conflict."
+    if "hawkish" in cluster.alignment or "rates_up" in cluster.alignment:
+        return f"The cluster is aligned in a hawkish or rates-positive direction. For {profile.symbol}, that is generally bearish because the transmission path runs through {', '.join(profile.dominant_channels)}. The read is cleaner than a single release because multiple data points point in the same macro direction."
+    if "dovish" in cluster.alignment or "rates_down" in cluster.alignment:
+        return f"The cluster is aligned in a dovish or rates-relief direction. For {profile.symbol}, that is generally bullish if the market treats the data as supportive rather than recessionary. The read needs confirmation from yields, USD, volatility, breadth, and related proxies."
+    return f"The cluster creates a conditional setup for {profile.symbol}. The macro message is not decisive enough on its own, so confirmation from rates, FX, volatility, breadth, and related symbols should decide whether there is a trade."
+
+
+def _execution_guidance(direction: str, profile: SymbolProfile, is_cluster: bool) -> str:
+    if "Wait" in direction or "Conditional" in direction:
+        return f"Treat this as a confirmation-first setup. Do not enter just because the headline appears important. Let {profile.symbol} establish direction versus the pre-release level, then check whether the confirmation instruments agree. If the data and price reaction conflict, stand aside."
+    if "Bearish" in direction or "bearish" in direction:
+        return f"Preferred setup is short-biased continuation after confirmation. Avoid chasing the first impulse if it is extended. A higher-quality short requires {profile.symbol} to stay below the pre-release level while yields/USD/volatility confirm. If those confirmation markets fail, downgrade to wait/no-trade or possible fade risk."
+    if "Bullish" in direction or "bullish" in direction:
+        return f"Preferred setup is long-biased continuation after confirmation. Avoid chasing the first impulse if it is extended. A higher-quality long requires {profile.symbol} to hold above the pre-release level while yields/USD/volatility and breadth support the move. If confirmation fails, downgrade to wait/no-trade."
+    return f"No directional trade should be taken until {profile.symbol} and its confirmation instruments agree."
 
 
 def assess_symbol_impact_for_release(symbol: str, release: MacroRelease) -> SymbolImpactReport:
@@ -150,6 +180,8 @@ def assess_symbol_impact_for_release(symbol: str, release: MacroRelease) -> Symb
         macro_regime_note=_regime_note(direction),
         symbol_explanation=profile.explanation,
         source_type="single_release",
+        why_direction=_why_for_release(assessment, profile, direction),
+        execution_guidance=_execution_guidance(direction, profile, is_cluster=False),
         release_assessment=assessment,
         educational_note="The directional read is a trading hypothesis, not a command. The release assessment defines the macro impulse; the symbol profile defines likely transmission; confirmation/invalidation decides whether the trade is valid.",
     )
@@ -169,6 +201,7 @@ def assess_symbol_impact_for_cluster(symbol: str, releases: list[MacroRelease]) 
             direction = f"Conditional {direction}"
         confidence = "Moderate/low because the cluster is mixed; market confirmation is required"
         posture = "Wait-for-confirmation or trade only after rates/USD/risk resolve the conflict"
+        do_not_chase = "Do not trade if the macro read and price reaction conflict. Mixed clusters require confirmation before direction is trusted."
     return SymbolImpactReport(
         symbol=profile.symbol,
         display_name=profile.display_name,
@@ -181,6 +214,8 @@ def assess_symbol_impact_for_cluster(symbol: str, releases: list[MacroRelease]) 
         macro_regime_note=_regime_note(direction),
         symbol_explanation=profile.explanation,
         source_type="release_cluster",
+        why_direction=_why_for_cluster(cluster, profile, direction),
+        execution_guidance=_execution_guidance(direction, profile, is_cluster=True),
         cluster_assessment=cluster,
         educational_note="Cluster reads should be weighted by alignment. Aligned clusters can support cleaner directional trades. Mixed clusters require stricter confirmation and faster downgrades to wait/no-trade.",
     )
@@ -194,6 +229,7 @@ def render_symbol_impact(report: SymbolImpactReport) -> str:
         f"- Direction: {report.direction}",
         f"- Confidence: {report.confidence}",
         f"- Trade posture: {report.trade_posture}",
+        f"- Why: {report.why_direction}",
         f"- Do not chase condition: {report.do_not_chase_condition}",
         "",
     ]
@@ -212,6 +248,9 @@ def render_symbol_impact(report: SymbolImpactReport) -> str:
             "",
             "Symbol-Specific Explanation:",
             report.symbol_explanation,
+            "",
+            "Execution Guidance:",
+            report.execution_guidance,
             "",
             "Confirmation Checklist:",
         ]
