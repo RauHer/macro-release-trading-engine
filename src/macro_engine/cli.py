@@ -4,6 +4,7 @@ import argparse
 import json
 from dataclasses import asdict
 from datetime import date
+from typing import Any
 
 from .calendar_sources import PUBLIC_CALENDAR_PRESETS, MultiSourceCalendar, PresetCalendarSource, build_preset_sources
 from .catalog import filter_catalog, list_countries
@@ -36,11 +37,26 @@ def _parse_sources(value: str | None) -> list[str] | None:
     return [x.strip() for x in value.split(",") if x.strip()] if value else None
 
 
-def _parse_cluster_events(value: str) -> list[str]:
+def _parse_optional_float_value(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip()
+    if text == "" or text.lower() in {"none", "na", "n/a", "null"}:
+        return None
+    if "," in text:
+        raise SystemExit(f"Expected a single numeric value, got comma-separated value: {text}")
+    return float(text)
+
+
+def _parse_cluster_events(value: str | None) -> list[str]:
+    if not value:
+        raise SystemExit("Cluster mode requires --events")
     return [x.strip().upper() for x in value.split(",") if x.strip()]
 
 
-def _parse_cluster_values(value: str | None, count: int) -> list[float | None]:
+def _parse_cluster_values(value: str | None, count: int, label: str) -> list[float | None]:
     if value is None:
         return [None] * count
     raw = [x.strip() for x in value.split(",")]
@@ -51,15 +67,15 @@ def _parse_cluster_values(value: str | None, count: int) -> list[float | None]:
         else:
             values.append(float(item))
     if len(values) != count:
-        raise SystemExit(f"Expected {count} comma-separated values, got {len(values)}")
+        raise SystemExit(f"Expected {count} comma-separated {label} values, got {len(values)}: {value}")
     return values
 
 
 def _build_cluster_releases(args: argparse.Namespace) -> list[MacroRelease]:
     events = _parse_cluster_events(args.events)
-    actuals = _parse_cluster_values(args.actuals, len(events))
-    forecasts = _parse_cluster_values(args.forecasts, len(events))
-    previous_values = _parse_cluster_values(args.previous, len(events))
+    actuals = _parse_cluster_values(args.actuals, len(events), "actual")
+    forecasts = _parse_cluster_values(args.forecasts, len(events), "forecast")
+    previous_values = _parse_cluster_values(args.previous, len(events), "previous")
     return [
         MacroRelease(
             country_code=args.country.upper(),
@@ -165,13 +181,15 @@ def cmd_calendar_view(args: argparse.Namespace) -> None:
 
 
 def _release_from_args(args: argparse.Namespace) -> MacroRelease:
+    if getattr(args, "event", None) is None:
+        raise SystemExit("Single-release mode requires --event. Use --events for cluster mode.")
     return MacroRelease(
         country_code=args.country.upper(),
         event_code=args.event.upper(),
-        actual=args.actual,
-        forecast=args.forecast,
-        previous=args.previous,
-        revised_previous=args.revised_previous,
+        actual=_parse_optional_float_value(args.actual),
+        forecast=_parse_optional_float_value(args.forecast),
+        previous=_parse_optional_float_value(args.previous),
+        revised_previous=_parse_optional_float_value(args.revised_previous),
         source="manual_cli",
     )
 
@@ -302,8 +320,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_symbol.add_argument("--event", default=None, help="Single event code. Omit when using --events cluster mode.")
     p_symbol.add_argument("--actual", type=float, default=None)
     p_symbol.add_argument("--forecast", type=float, default=None)
-    p_symbol.add_argument("--previous", type=float, default=None)
-    p_symbol.add_argument("--revised-previous", type=float, default=None)
+    p_symbol.add_argument("--previous", default=None, help="Single previous value, or comma-separated previous values in --events cluster mode")
+    p_symbol.add_argument("--revised-previous", default=None)
     p_symbol.add_argument("--events", default=None, help="Cluster mode: comma-separated event codes")
     p_symbol.add_argument("--actuals", default=None, help="Cluster mode: comma-separated actuals")
     p_symbol.add_argument("--forecasts", default=None, help="Cluster mode: comma-separated forecasts")
