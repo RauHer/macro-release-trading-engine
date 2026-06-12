@@ -33,8 +33,10 @@ CORE_EVENT_SET: tuple[dict, ...] = (
     {"event_code": "CPI", "name": "Consumer Price Index", "impact": Impact.HIGH, "channels": (Channel.INFLATION, Channel.CENTRAL_BANK), "higher_is": "hawkish_risk_off", "sens": _sens(equity=-2, front_rates=3, long_rates=2, fx=2, usd=2, vol=2)},
     {"event_code": "CORE_CPI", "name": "Core Consumer Price Index", "impact": Impact.HIGH, "channels": (Channel.INFLATION, Channel.CENTRAL_BANK), "higher_is": "hawkish_risk_off", "sens": _sens(equity=-3, front_rates=3, long_rates=2, fx=2, usd=2, vol=2)},
     {"event_code": "PPI", "name": "Producer Price Index", "impact": Impact.MEDIUM, "channels": (Channel.INFLATION,), "higher_is": "hawkish_risk_off", "sens": _sens(equity=-1, front_rates=2, long_rates=1, fx=1, usd=1)},
+    {"event_code": "INFLATION_EXPECTATIONS", "name": "Inflation Expectations", "impact": Impact.MEDIUM, "channels": (Channel.INFLATION, Channel.CENTRAL_BANK, Channel.CONFIDENCE), "higher_is": "hawkish_risk_off", "sens": _sens(equity=-1, front_rates=2, long_rates=1, fx=1, vol=1)},
     {"event_code": "GDP", "name": "Gross Domestic Product", "impact": Impact.HIGH, "channels": (Channel.GROWTH,), "higher_is": "growth_positive", "sens": _sens(equity=2, front_rates=1, long_rates=2, fx=1)},
     {"event_code": "UNEMPLOYMENT", "name": "Unemployment Rate", "impact": Impact.HIGH, "channels": (Channel.LABOR, Channel.GROWTH, Channel.CENTRAL_BANK), "higher_is": "growth_negative_dovish", "sens": _sens(equity=-1, front_rates=-2, long_rates=-1, fx=-1, vol=1)},
+    {"event_code": "JOBLESS_CLAIMS", "name": "Jobless / Unemployment Claims", "impact": Impact.MEDIUM, "channels": (Channel.LABOR, Channel.GROWTH, Channel.CENTRAL_BANK), "higher_is": "growth_negative_dovish", "sens": _sens(equity=-1, front_rates=-2, long_rates=-1, fx=-1, vol=1)},
     {"event_code": "EMPLOYMENT_CHANGE", "name": "Employment Change", "impact": Impact.HIGH, "channels": (Channel.LABOR, Channel.GROWTH, Channel.CENTRAL_BANK), "higher_is": "growth_positive_hawkish", "sens": _sens(equity=1, front_rates=2, long_rates=1, fx=1)},
     {"event_code": "WAGES", "name": "Wage Growth", "impact": Impact.HIGH, "channels": (Channel.LABOR, Channel.INFLATION, Channel.CENTRAL_BANK), "higher_is": "hawkish_risk_off", "sens": _sens(equity=-2, front_rates=3, long_rates=1, fx=2, vol=1)},
     {"event_code": "RETAIL_SALES", "name": "Retail Sales", "impact": Impact.HIGH, "channels": (Channel.CONSUMER, Channel.GROWTH), "higher_is": "growth_positive", "sens": _sens(equity=2, front_rates=1, long_rates=1, fx=1)},
@@ -46,7 +48,11 @@ CORE_EVENT_SET: tuple[dict, ...] = (
     {"event_code": "INDUSTRIAL_PRODUCTION", "name": "Industrial Production", "impact": Impact.MEDIUM, "channels": (Channel.GROWTH,), "higher_is": "growth_positive", "sens": _sens(equity=1, front_rates=1, long_rates=1, fx=1)},
     {"event_code": "TRADE_BALANCE", "name": "Trade Balance", "impact": Impact.MEDIUM, "channels": (Channel.TRADE, Channel.GROWTH), "higher_is": "currency_positive", "sens": _sens(fx=2, equity=1)},
     {"event_code": "HOUSING", "name": "Housing Data", "impact": Impact.MEDIUM, "channels": (Channel.HOUSING, Channel.GROWTH, Channel.CREDIT), "higher_is": "growth_positive", "sens": _sens(equity=1, front_rates=1, long_rates=1)},
+    {"event_code": "BUILDING_PERMITS", "name": "Building Permits", "impact": Impact.MEDIUM, "channels": (Channel.HOUSING, Channel.GROWTH, Channel.CREDIT), "higher_is": "growth_positive", "sens": _sens(equity=1, front_rates=1, long_rates=1)},
     {"event_code": "CONFIDENCE", "name": "Consumer / Business Confidence", "impact": Impact.MEDIUM, "channels": (Channel.CONFIDENCE, Channel.CONSUMER), "higher_is": "growth_positive", "sens": _sens(equity=1, fx=1)},
+    {"event_code": "BOND_AUCTION", "name": "Government Bond Auction", "impact": Impact.LOW, "channels": (Channel.FISCAL, Channel.LIQUIDITY), "higher_is": "contextual", "sens": _sens(equity=-1, front_rates=1, long_rates=2, fx=1)},
+    {"event_code": "ENERGY_INVENTORIES", "name": "Energy Inventories / Storage", "impact": Impact.LOW, "channels": (Channel.GROWTH,), "higher_is": "commodity_supply_positive", "sens": _sens(commodities=-2, equity=0)},
+    {"event_code": "TOURISM", "name": "Tourism / Visitor Arrivals", "impact": Impact.LOW, "channels": (Channel.CONSUMER, Channel.GROWTH), "higher_is": "growth_positive", "sens": _sens(equity=1, fx=1)},
 )
 
 
