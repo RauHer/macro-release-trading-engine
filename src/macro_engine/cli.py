@@ -15,6 +15,7 @@ from .reports import render_post_release, render_pre_release
 from .scoring import classify_trade_bias, score_release
 from .sources import GenericHTMLCalendarSource, ManualCalendarCSVSource
 from .storage import save_calendar_events
+from .symbol_impact import assess_symbol_impact_for_cluster, assess_symbol_impact_for_release, render_symbol_impact
 
 
 def _add_release_args(parser: argparse.ArgumentParser) -> None:
@@ -52,6 +53,24 @@ def _parse_cluster_values(value: str | None, count: int) -> list[float | None]:
     if len(values) != count:
         raise SystemExit(f"Expected {count} comma-separated values, got {len(values)}")
     return values
+
+
+def _build_cluster_releases(args: argparse.Namespace) -> list[MacroRelease]:
+    events = _parse_cluster_events(args.events)
+    actuals = _parse_cluster_values(args.actuals, len(events))
+    forecasts = _parse_cluster_values(args.forecasts, len(events))
+    previous_values = _parse_cluster_values(args.previous, len(events))
+    return [
+        MacroRelease(
+            country_code=args.country.upper(),
+            event_code=event_code,
+            actual=actuals[i],
+            forecast=forecasts[i],
+            previous=previous_values[i],
+            source="manual_cli_cluster",
+        )
+        for i, event_code in enumerate(events)
+    ]
 
 
 def cmd_countries(_: argparse.Namespace) -> None:
@@ -166,26 +185,23 @@ def cmd_assess_release(args: argparse.Namespace) -> None:
 
 
 def cmd_assess_cluster(args: argparse.Namespace) -> None:
-    events = _parse_cluster_events(args.events)
-    actuals = _parse_cluster_values(args.actuals, len(events))
-    forecasts = _parse_cluster_values(args.forecasts, len(events))
-    previous_values = _parse_cluster_values(args.previous, len(events))
-    releases = [
-        MacroRelease(
-            country_code=args.country.upper(),
-            event_code=event_code,
-            actual=actuals[i],
-            forecast=forecasts[i],
-            previous=previous_values[i],
-            source="manual_cli_cluster",
-        )
-        for i, event_code in enumerate(events)
-    ]
+    releases = _build_cluster_releases(args)
     cluster = assess_release_cluster(releases)
     if args.json:
         print(json.dumps(asdict(cluster), indent=2, default=str))
         return
     print(render_cluster_assessment(cluster))
+
+
+def cmd_symbol_impact(args: argparse.Namespace) -> None:
+    if args.events:
+        report = assess_symbol_impact_for_cluster(args.symbol, _build_cluster_releases(args))
+    else:
+        report = assess_symbol_impact_for_release(args.symbol, _release_from_args(args))
+    if args.json:
+        print(json.dumps(asdict(report), indent=2, default=str))
+        return
+    print(render_symbol_impact(report))
 
 
 def cmd_score(args: argparse.Namespace) -> None:
@@ -279,6 +295,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_cluster.add_argument("--previous", default=None, help="Comma-separated previous values; use blank/none for missing")
     p_cluster.add_argument("--json", action="store_true")
     p_cluster.set_defaults(func=cmd_assess_cluster)
+
+    p_symbol = sub.add_parser("symbol-impact", help="Assess trade direction and invalidation logic for a queried symbol")
+    p_symbol.add_argument("--symbol", required=True, help="Trading symbol, e.g. NQ, ES, RTY, DXY, EURUSD, NVDA")
+    p_symbol.add_argument("--country", required=True)
+    p_symbol.add_argument("--event", default=None, help="Single event code. Omit when using --events cluster mode.")
+    p_symbol.add_argument("--actual", type=float, default=None)
+    p_symbol.add_argument("--forecast", type=float, default=None)
+    p_symbol.add_argument("--previous", type=float, default=None)
+    p_symbol.add_argument("--revised-previous", type=float, default=None)
+    p_symbol.add_argument("--events", default=None, help="Cluster mode: comma-separated event codes")
+    p_symbol.add_argument("--actuals", default=None, help="Cluster mode: comma-separated actuals")
+    p_symbol.add_argument("--forecasts", default=None, help="Cluster mode: comma-separated forecasts")
+    p_symbol.add_argument("--json", action="store_true")
+    p_symbol.set_defaults(func=cmd_symbol_impact)
 
     p_score = sub.add_parser("score", help="Score a macro release")
     _add_release_args(p_score)
