@@ -4,8 +4,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Iterable
 
-from .catalog import find_event
-from .models import Channel, MacroRelease
+from .models import MacroRelease
 from .release_assessment import ReleaseAssessment, assess_release, render_release_assessment
 
 
@@ -56,6 +55,29 @@ def _cluster_family(event_codes: set[str]) -> tuple[str, str]:
 
 def _direction_bucket(a: ReleaseAssessment) -> str:
     text = f"{a.trader_interpretation} {a.first_macro_read}".lower()
+
+    # Labor-market deterioration must be treated as growth-negative before
+    # generic words like "dovish" are considered. A higher unemployment rate or
+    # higher jobless claims can be rate-dovish, but it is still a weakening
+    # labor signal and should create cluster conflict when payrolls/wages are hot.
+    if a.event_code in {"UNEMPLOYMENT", "JOBLESS_CLAIMS"}:
+        if "weaker labor" in text or "growth-negative" in text or "deterioration" in text:
+            return "growth_negative"
+        if "stronger labor" in text or "labor-tightness" in text:
+            return "growth_positive"
+
+    if a.event_code == "EMPLOYMENT_CHANGE":
+        if "stronger" in text or "growth-positive" in text:
+            return "growth_positive"
+        if "weaker" in text or "growth-negative" in text:
+            return "growth_negative"
+
+    if a.event_code == "WAGES":
+        if "hotter" in text or "hawkish" in text:
+            return "hawkish_or_risk_negative"
+        if "cooler" in text or "dovish" in text:
+            return "dovish_or_risk_supportive"
+
     if any(x in text for x in ["hotter", "hawkish", "larger inventory build", "higher clearing yield"]):
         return "hawkish_or_risk_negative"
     if any(x in text for x in ["cooler", "dovish", "smaller inventory build", "larger draw", "lower clearing yield"]):
@@ -94,7 +116,10 @@ def _alignment_for(cluster_type: str, assessments: list[ReleaseAssessment]) -> t
             return "mixed_inflation", "Mixed inflation impulse; market confirmation should dominate.", warnings
 
     if cluster_type == "labor":
-        if hawkish and growth_pos and not growth_neg:
+        if growth_neg and (hawkish or growth_pos or dovish):
+            warnings.append("Labor details are mixed; payrolls, unemployment, wages, participation, and revisions must be weighted together.")
+            return "mixed_labor", "Mixed labor impulse; symbol direction is conditional on rates/USD and risk reaction.", warnings
+        if hawkish and growth_pos and not growth_neg and not dovish:
             return "aligned_hawkish_labor", "Hot/tight labor impulse; front-end yields and USD should rise if market prices Fed-path pressure.", warnings
         if growth_neg and not hawkish and not growth_pos:
             return "growth_negative_labor", "Labor deterioration impulse; rates may fall, but equities can sell off if recession fear dominates.", warnings
