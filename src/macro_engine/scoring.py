@@ -56,10 +56,18 @@ def _macro_impulse(higher_is: str, raw_surprise: float | None) -> str:
     return "contextual_manual_interpretation_required"
 
 
-def _asset_bias(event_sensitivity: dict[AssetClass, int], directional_score: float) -> dict[str, str]:
+def _asset_bias(event_sensitivity: dict[AssetClass, int], surprise_score: float) -> dict[str, str]:
+    """Translate event surprise into per-asset directional labels.
+
+    event_sensitivity is defined as the expected asset effect when the release
+    is higher than forecast. Therefore it must be multiplied by the raw
+    standardized surprise, not by the already macro-direction-adjusted score.
+    Example: hot CPI has positive surprise and negative equity sensitivity,
+    so the equity impulse should be bearish.
+    """
     bias: dict[str, str] = {}
     for asset, sensitivity in event_sensitivity.items():
-        impulse = sensitivity * directional_score
+        impulse = sensitivity * surprise_score
         if impulse > 35:
             label = "strong_bullish"
         elif impulse > 10:
@@ -141,7 +149,7 @@ def score_release(release: MacroRelease) -> SurpriseResult:
         standardized_surprise=round(standardized, 2),
         directional_score=round(directional_score, 2),
         macro_impulse=_macro_impulse(event.higher_is, raw_surprise),
-        asset_bias=_asset_bias(event.asset_sensitivity, directional_score),
+        asset_bias=_asset_bias(event.asset_sensitivity, standardized),
         confidence=confidence,
         warnings=warnings,
         details={
