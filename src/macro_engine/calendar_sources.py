@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Iterable
 
-from .sources import CalendarEvent, CalendarSource, GenericHTMLCalendarSource
+from .source_adapters import SOURCE_ADAPTERS, build_all_source_adapters, build_source_adapter
+from .sources import CalendarEvent, CalendarSource
 
 
 @dataclass(frozen=True)
@@ -12,7 +13,7 @@ class PublicCalendarPreset:
     key: str
     name: str
     url: str
-    adapter: str = "generic_html"
+    adapter: str
     notes: str = ""
 
 
@@ -21,37 +22,43 @@ PUBLIC_CALENDAR_PRESETS: dict[str, PublicCalendarPreset] = {
         key="forexfactory",
         name="Forex Factory Calendar",
         url="https://www.forexfactory.com/calendar",
-        notes="Best candidate for a source-specific adapter because Forex Factory exposes export-style calendar formats, but generic HTML parsing may not be enough.",
+        adapter="ForexFactoryCalendarAdapter",
+        notes="Primary first target; attempts export-style endpoints before HTML fallback.",
     ),
     "myfxbook": PublicCalendarPreset(
         key="myfxbook",
         name="Myfxbook Economic Calendar",
         url="https://www.myfxbook.com/forex-economic-calendar",
-        notes="Likely table-oriented; may require login or custom handling for export endpoints.",
+        adapter="MyfxbookCalendarAdapter",
+        notes="Potentially table-oriented; may require login/export handling.",
     ),
     "fxstreet": PublicCalendarPreset(
         key="fxstreet",
         name="FXStreet Economic Calendar",
         url="https://www.fxstreet.com/economic-calendar",
-        notes="Useful event model with consensus/actual/deviation concepts; likely needs a custom adapter if rendered dynamically.",
+        adapter="FXStreetCalendarAdapter",
+        notes="May require custom dynamic-page handling if generic HTML tables are absent.",
     ),
     "investing": PublicCalendarPreset(
         key="investing",
         name="Investing.com Economic Calendar",
         url="https://www.investing.com/economic-calendar/",
-        notes="Broad coverage but often dynamic/anti-bot; use as a fallback source, not the backbone.",
+        adapter="InvestingCalendarAdapter",
+        notes="Broad coverage but commonly dynamic/anti-bot; fallback source.",
     ),
     "tradingeconomics": PublicCalendarPreset(
         key="tradingeconomics",
         name="Trading Economics Calendar",
         url="https://tradingeconomics.com/calendar",
-        notes="Excellent data model; best long-term path is probably API-backed rather than scraped HTML.",
+        adapter="TradingEconomicsCalendarAdapter",
+        notes="Excellent model; API-backed adapter likely best long term.",
     ),
     "financialjuice": PublicCalendarPreset(
         key="financialjuice",
         name="FinancialJuice News Stream",
         url="https://www.financialjuice.com/home",
-        notes="Better suited to headline/squawk ingestion than primary economic calendar ingestion.",
+        adapter="FinancialJuiceNewsAdapter",
+        notes="Better as future headline/squawk adapter than primary calendar.",
     ),
 }
 
@@ -66,18 +73,10 @@ class PresetCalendarSource(CalendarSource):
             raise KeyError(f"Unknown calendar preset '{preset_key}'. Valid presets: {valid}")
         self.preset = PUBLIC_CALENDAR_PRESETS[key]
         self.source_name = self.preset.key
-        self._source = GenericHTMLCalendarSource(self.preset.url, source_name=self.preset.key)
+        self._source = build_source_adapter(key)
 
     def fetch_calendar(self, target_date: date) -> list[CalendarEvent]:
-        events = self._source.fetch_calendar(target_date)
-        for event in events:
-            if not event.source:
-                event.source = self.preset.key
-            if not event.source_url:
-                event.source_url = self.preset.url
-            if self.preset.notes and self.preset.notes not in event.notes:
-                event.notes = f"{event.notes} {self.preset.notes}".strip()
-        return events
+        return self._source.fetch_calendar(target_date)
 
 
 @dataclass
@@ -97,9 +96,9 @@ class MultiSourceCalendarResult:
 class MultiSourceCalendar(CalendarSource):
     """Try several sources and deduplicate normalized calendar events.
 
-    This is the key redundancy layer. Each source is allowed to fail without
-    stopping the workflow. Successful results are merged using a conservative
-    key: country, event code, scheduled timestamp/date, and event name.
+    Each source is allowed to fail without stopping the workflow. Successful
+    results are merged using a conservative key: country, event code,
+    scheduled timestamp/date, and event name.
     """
 
     source_name = "multi_source"
@@ -124,9 +123,9 @@ class MultiSourceCalendar(CalendarSource):
         return self.fetch_calendar_result(target_date).events
 
 
-def build_preset_sources(keys: Iterable[str] | None = None) -> list[PresetCalendarSource]:
-    selected = list(keys) if keys else list(PUBLIC_CALENDAR_PRESETS.keys())
-    return [PresetCalendarSource(key) for key in selected]
+def build_preset_sources(keys: Iterable[str] | None = None) -> list[CalendarSource]:
+    selected = list(keys) if keys else list(SOURCE_ADAPTERS.keys())
+    return build_all_source_adapters(selected)
 
 
 def dedupe_calendar_events(events: Iterable[CalendarEvent]) -> list[CalendarEvent]:
@@ -138,7 +137,6 @@ def dedupe_calendar_events(events: Iterable[CalendarEvent]) -> list[CalendarEven
             seen[key] = event
             continue
         existing = seen[key]
-        # Prefer rows with forecasts/actuals and keep source provenance.
         if existing.forecast is None and event.forecast is not None:
             existing.forecast = event.forecast
         if existing.previous is None and event.previous is not None:
