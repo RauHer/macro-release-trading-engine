@@ -6,7 +6,12 @@ from dataclasses import asdict
 from datetime import date
 from typing import Any
 
-from .calendar_impact import build_calendar_cluster_impact, build_calendar_symbol_impact
+from .calendar_impact import (
+    build_auto_calendar_cluster_impact,
+    build_auto_calendar_symbol_impact,
+    build_calendar_cluster_impact,
+    build_calendar_symbol_impact,
+)
 from .calendar_sources import PUBLIC_CALENDAR_PRESETS, MultiSourceCalendar, PresetCalendarSource, build_preset_sources
 from .catalog import filter_catalog, list_countries
 from .daily_playbook import build_daily_playbook, render_daily_playbook
@@ -272,6 +277,40 @@ def cmd_calendar_cluster_impact(args: argparse.Namespace) -> None:
     print(render_symbol_impact(report))
 
 
+def cmd_auto_calendar_symbol_impact(args: argparse.Namespace) -> None:
+    target = _parse_date(args.date)
+    result = build_auto_calendar_symbol_impact(
+        preset=args.preset,
+        target_date=target,
+        symbol=args.symbol,
+        country=args.country,
+        event=args.event,
+        occurrence=args.occurrence,
+    )
+    if args.json:
+        print(json.dumps(asdict(result), indent=2, default=str))
+        return
+    print(f"Auto-refreshed calendar -> {result.refreshed_calendar_path}\n")
+    print(render_symbol_impact(result.report))
+
+
+def cmd_auto_calendar_cluster_impact(args: argparse.Namespace) -> None:
+    target = _parse_date(args.date)
+    events = _parse_cluster_events(args.events)
+    result = build_auto_calendar_cluster_impact(
+        preset=args.preset,
+        target_date=target,
+        symbol=args.symbol,
+        country=args.country,
+        events=events,
+    )
+    if args.json:
+        print(json.dumps(asdict(result), indent=2, default=str))
+        return
+    print(f"Auto-refreshed calendar -> {result.refreshed_calendar_path}\n")
+    print(render_symbol_impact(result.report))
+
+
 def cmd_score(args: argparse.Namespace) -> None:
     result = score_release(_release_from_args(args))
     if args.json:
@@ -407,6 +446,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_cal_cluster.add_argument("--actuals", required=True, help="Comma-separated actual values in the same order as --events")
     p_cal_cluster.add_argument("--json", action="store_true")
     p_cal_cluster.set_defaults(func=cmd_calendar_cluster_impact)
+
+    p_auto_symbol = sub.add_parser("auto-calendar-symbol-impact", help="Automatically refresh public calendar and run symbol impact after actual posts")
+    p_auto_symbol.add_argument("--date", default=None, help="Target date YYYY-MM-DD; default today")
+    p_auto_symbol.add_argument("--preset", choices=sorted(PUBLIC_CALENDAR_PRESETS), default="forexfactory")
+    p_auto_symbol.add_argument("--symbol", required=True)
+    p_auto_symbol.add_argument("--country", required=True)
+    p_auto_symbol.add_argument("--event", required=True)
+    p_auto_symbol.add_argument("--occurrence", type=int, default=1)
+    p_auto_symbol.add_argument("--json", action="store_true")
+    p_auto_symbol.set_defaults(func=cmd_auto_calendar_symbol_impact)
+
+    p_auto_cluster = sub.add_parser("auto-calendar-cluster-impact", help="Automatically refresh public calendar and run cluster impact after actuals post")
+    p_auto_cluster.add_argument("--date", default=None, help="Target date YYYY-MM-DD; default today")
+    p_auto_cluster.add_argument("--preset", choices=sorted(PUBLIC_CALENDAR_PRESETS), default="forexfactory")
+    p_auto_cluster.add_argument("--symbol", required=True)
+    p_auto_cluster.add_argument("--country", required=True)
+    p_auto_cluster.add_argument("--events", required=True, help="Comma-separated event codes in release order")
+    p_auto_cluster.add_argument("--json", action="store_true")
+    p_auto_cluster.set_defaults(func=cmd_auto_calendar_cluster_impact)
 
     p_score = sub.add_parser("score", help="Score a macro release")
     _add_release_args(p_score)
