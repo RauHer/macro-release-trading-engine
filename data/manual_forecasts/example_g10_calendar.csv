@@ -1,0 +1,12 @@
+country_code,event_code,name,scheduled_at,impact,forecast,previous,actual,unit,source,source_url,notes
+US,CPI,Consumer Price Index,2026-06-11T08:30:00,high,3.2,3.1,,%,manual_example,,US CPI example row
+US,CORE_CPI,Core Consumer Price Index,2026-06-11T08:30:00,high,3.4,3.3,,%,manual_example,,US core CPI example row
+EA,CENTRAL_BANK_RATE,ECB Policy Rate Decision,2026-06-11T08:15:00,high,3.75,4.00,,%,manual_example,,ECB rate example row
+UK,GDP,Gross Domestic Product,2026-06-11T02:00:00,high,0.2,0.1,,%,manual_example,,UK GDP example row
+JP,CPI,Consumer Price Index,2026-06-11T19:30:00,high,2.8,2.6,,%,manual_example,,Japan CPI example row
+CA,EMPLOYMENT_CHANGE,Employment Change,2026-06-11T08:30:00,high,20.0,15.0,,K,manual_example,,Canada jobs example row
+AU,EMPLOYMENT_CHANGE,Employment Change,2026-06-11T21:30:00,high,25.0,38.0,,K,manual_example,,Australia jobs example row
+NZ,CENTRAL_BANK_RATE,RBNZ Policy Rate Decision,2026-06-11T22:00:00,high,4.75,5.00,,%,manual_example,,RBNZ example row
+CH,CPI,Consumer Price Index,2026-06-11T02:30:00,high,1.4,1.2,,%,manual_example,,Swiss CPI example row
+SE,CPI,Consumer Price Index,2026-06-11T03:30:00,high,2.1,2.2,,%,manual_example,,Sweden CPI example row
+NO,CPI,Consumer Price Index,2026-06-11T02:00:00,high,2.9,3.0,,%,manual_example,,Norway CPI example row
