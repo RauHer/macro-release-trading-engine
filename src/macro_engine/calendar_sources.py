@@ -8,6 +8,22 @@ from .source_adapters import SOURCE_ADAPTERS, build_all_source_adapters, build_s
 from .sources import CalendarEvent, CalendarSource
 
 
+def summarize_error(exc: Exception, limit: int = 500) -> str:
+    """Return a concise single-line source error.
+
+    Some public sites return very large HTML/JavaScript bodies when blocked or
+    when pandas cannot find parseable tables. Diagnostics should identify the
+    failure without dumping an entire webpage into the terminal.
+    """
+    text = str(exc).replace("\r", " ").replace("\n", " ").strip()
+    lowered = text.lower()
+    if "<html" in lowered or "<script" in lowered or "document.getelementbyid" in lowered:
+        text = "HTML/JavaScript page returned instead of parseable calendar data; likely dynamic page, login wall, or anti-bot response."
+    if len(text) > limit:
+        text = text[:limit].rstrip() + " ... [truncated]"
+    return text
+
+
 @dataclass(frozen=True)
 class PublicCalendarPreset:
     key: str
@@ -116,7 +132,7 @@ class MultiSourceCalendar(CalendarSource):
                 attempts.append(SourceAttempt(source=name, ok=True, events=len(events)))
                 all_events.extend(events)
             except Exception as exc:  # intentionally source-isolated
-                attempts.append(SourceAttempt(source=name, ok=False, events=0, error=str(exc)))
+                attempts.append(SourceAttempt(source=name, ok=False, events=0, error=summarize_error(exc)))
         return MultiSourceCalendarResult(events=dedupe_calendar_events(all_events), attempts=attempts)
 
     def fetch_calendar(self, target_date: date) -> list[CalendarEvent]:
