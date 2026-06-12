@@ -6,6 +6,7 @@ from dataclasses import asdict
 from datetime import date
 from typing import Any
 
+from .calendar_impact import build_calendar_cluster_impact, build_calendar_symbol_impact
 from .calendar_sources import PUBLIC_CALENDAR_PRESETS, MultiSourceCalendar, PresetCalendarSource, build_preset_sources
 from .catalog import filter_catalog, list_countries
 from .daily_playbook import build_daily_playbook, render_daily_playbook
@@ -240,6 +241,37 @@ def cmd_daily_playbook(args: argparse.Namespace) -> None:
     print(render_daily_playbook(playbook))
 
 
+def cmd_calendar_symbol_impact(args: argparse.Namespace) -> None:
+    report = build_calendar_symbol_impact(
+        calendar_path=args.calendar,
+        symbol=args.symbol,
+        country=args.country,
+        event=args.event,
+        actual=args.actual,
+        occurrence=args.occurrence,
+    )
+    if args.json:
+        print(json.dumps(asdict(report), indent=2, default=str))
+        return
+    print(render_symbol_impact(report))
+
+
+def cmd_calendar_cluster_impact(args: argparse.Namespace) -> None:
+    events = _parse_cluster_events(args.events)
+    actuals = _parse_cluster_values(args.actuals, len(events), "actual")
+    report = build_calendar_cluster_impact(
+        calendar_path=args.calendar,
+        symbol=args.symbol,
+        country=args.country,
+        events=events,
+        actuals=actuals,
+    )
+    if args.json:
+        print(json.dumps(asdict(report), indent=2, default=str))
+        return
+    print(render_symbol_impact(report))
+
+
 def cmd_score(args: argparse.Namespace) -> None:
     result = score_release(_release_from_args(args))
     if args.json:
@@ -356,6 +388,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_playbook.add_argument("--cluster-window-minutes", type=int, default=5)
     p_playbook.add_argument("--json", action="store_true")
     p_playbook.set_defaults(func=cmd_daily_playbook)
+
+    p_cal_symbol = sub.add_parser("calendar-symbol-impact", help="Post-release symbol impact using forecast/previous values from an imported calendar CSV")
+    p_cal_symbol.add_argument("--symbol", required=True)
+    p_cal_symbol.add_argument("--calendar", required=True)
+    p_cal_symbol.add_argument("--country", required=True)
+    p_cal_symbol.add_argument("--event", required=True)
+    p_cal_symbol.add_argument("--actual", type=float, default=None, help="Actual released value; if omitted, use calendar actual if present")
+    p_cal_symbol.add_argument("--occurrence", type=int, default=1, help="Use when multiple calendar rows match the same event code")
+    p_cal_symbol.add_argument("--json", action="store_true")
+    p_cal_symbol.set_defaults(func=cmd_calendar_symbol_impact)
+
+    p_cal_cluster = sub.add_parser("calendar-cluster-impact", help="Post-release cluster impact using forecast/previous values from an imported calendar CSV")
+    p_cal_cluster.add_argument("--symbol", required=True)
+    p_cal_cluster.add_argument("--calendar", required=True)
+    p_cal_cluster.add_argument("--country", required=True)
+    p_cal_cluster.add_argument("--events", required=True, help="Comma-separated event codes in release order")
+    p_cal_cluster.add_argument("--actuals", required=True, help="Comma-separated actual values in the same order as --events")
+    p_cal_cluster.add_argument("--json", action="store_true")
+    p_cal_cluster.set_defaults(func=cmd_calendar_cluster_impact)
 
     p_score = sub.add_parser("score", help="Score a macro release")
     _add_release_args(p_score)
