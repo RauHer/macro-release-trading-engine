@@ -5,7 +5,6 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from .catalog import find_event
-from .models import MacroRelease
 from .sources import CalendarEvent
 from .storage import load_manual_calendar_csv
 from .symbol_profiles import SymbolProfile, get_symbol_profile
@@ -46,6 +45,8 @@ class DailyPlaybook:
     clusters: list[PlaybookCluster]
     summary: str
     watchlist: list[str] = field(default_factory=list)
+    global_confirmation: list[str] = field(default_factory=list)
+    global_invalidation: list[str] = field(default_factory=list)
 
 
 def _event_channels(event_code: str, country_code: str) -> tuple[str, ...]:
@@ -62,14 +63,13 @@ def _symbol_channel_relevance(profile: SymbolProfile, country_code: str, event_c
     symbol_region = profile.region.upper()
     cc = country_code.upper()
 
-    if cc in symbol_region or cc == "US" and profile.currency.upper().startswith("USD"):
+    if cc in symbol_region or (cc == "US" and profile.currency.upper().startswith("USD")):
         score += 25
         reasons.append("country/currency exposure matches the symbol")
     elif cc == "US" and profile.asset_class in {"equity_index", "single_stock", "fx_index", "fx"}:
         score += 20
         reasons.append("US macro has broad cross-asset transmission")
 
-    dominant = {x.lower() for x in profile.dominant_channels}
     joined_channels = " ".join(channels).lower()
     if any(x in joined_channels for x in ["inflation", "central_bank", "liquidity"]):
         if profile.rate_sensitivity in {"high", "medium/high"} or profile.asset_class in {"equity_index", "single_stock", "fx", "fx_index"}:
@@ -83,10 +83,9 @@ def _symbol_channel_relevance(profile: SymbolProfile, country_code: str, event_c
         if profile.symbol in {"RTY", "ES", "NQ"} or profile.asset_class in {"equity_index", "single_stock"}:
             score += 10
             reasons.append("release touches rate-sensitive credit/housing channels")
-    if "trade" in joined_channels or profile.asset_class in {"fx", "fx_index"}:
-        if profile.asset_class in {"fx", "fx_index"}:
-            score += 15
-            reasons.append("release can affect FX/rate differentials")
+    if "trade" in joined_channels and profile.asset_class in {"fx", "fx_index"}:
+        score += 15
+        reasons.append("release can affect FX/rate differentials")
 
     if not reasons:
         reasons.append("generic macro relevance; requires price confirmation")
@@ -99,13 +98,13 @@ def _preliminary_direction(profile: SymbolProfile, event_code: str, country_code
     joined = " ".join(channels)
     if profile.asset_class in {"equity_index", "single_stock"}:
         if "inflation" in joined or "central_bank" in joined:
-            return f"Two-sided before release: hotter/more hawkish is usually bearish {profile.symbol}; cooler/more dovish is usually bullish {profile.symbol}, unless growth-scare conditions dominate."
+            return f"Two-sided: hotter/more hawkish is usually bearish {profile.symbol}; cooler/more dovish is usually bullish {profile.symbol}, unless growth-scare conditions dominate."
         if "labor" in joined:
-            return f"Two-sided before release: hot wages/tight labor can be bearish {profile.symbol} through yields, while labor weakness can be bullish through rate relief or bearish through recession fear."
+            return f"Two-sided: hot wages/tight labor can be bearish {profile.symbol} through yields; labor weakness can be bullish through rate relief or bearish through recession fear."
         if "growth" in joined or "consumer" in joined:
             return f"Conditional: stronger growth can support {profile.symbol} if rates stay contained, but can hurt if the regime punishes stronger data with higher yields."
     if profile.asset_class in {"fx", "fx_index"}:
-        return f"Two-sided before release: stronger or more hawkish data should support the local currency/rate differential; weaker or more dovish data should pressure it, unless risk sentiment dominates."
+        return "Two-sided: stronger or more hawkish data should support the local currency/rate differential; weaker or more dovish data should pressure it, unless risk sentiment dominates."
     return "Two-sided before release; wait for actual value, deviation, and market confirmation."
 
 
@@ -135,12 +134,12 @@ def _invalidation(profile: SymbolProfile) -> list[str]:
 
 def _trader_note(profile: SymbolProfile, event: CalendarEvent) -> str:
     if event.forecast is not None:
-        data_note = "Forecast is available, so the post-release assessment can use actual-vs-consensus deviation."
+        data_note = "Forecast available: post-release engine can use actual-vs-consensus deviation."
     elif event.previous is not None:
-        data_note = "No forecast is available; treat the post-release assessment as previous-relative, not a true consensus surprise."
+        data_note = "No forecast: post-release engine should use previous-relative assessment, not a true consensus surprise."
     else:
-        data_note = "Forecast and previous are missing; this event needs qualitative interpretation and market confirmation."
-    return f"{data_note} For {profile.symbol}, do not trade the calendar row by itself; wait for the actual release, deviation, and confirmation from the listed markets."
+        data_note = "No forecast/previous: qualitative interpretation and market confirmation dominate."
+    return f"{data_note} Do not trade this row by itself; wait for actual release, deviation, and confirmation."
 
 
 def _event_sort_key(item: PlaybookEvent) -> tuple[int, datetime]:
@@ -199,7 +198,7 @@ def _group_clusters(events: list[PlaybookEvent], window_minutes: int) -> list[Pl
                 scheduled_at=cluster[0].calendar_event.scheduled_at,
                 events=cluster,
                 net_read="Pre-release cluster. Direction is unknown until actuals print. After release, assess whether the individual events are aligned, mixed, or contradictory.",
-                trade_posture="Do not front-run the cluster. Use the cluster as a volatility window, then trade only after actual deviations and confirmation markets agree.",
+                trade_posture="Do not front-run the cluster. Use it as a volatility window, then trade only after actual deviations and confirmation markets agree.",
                 invalidation_logic="Stand aside if the cluster produces mixed data and the queried symbol, rates, USD, volatility, or breadth do not resolve the conflict.",
                 confidence=confidence,
             )
@@ -207,7 +206,15 @@ def _group_clusters(events: list[PlaybookEvent], window_minutes: int) -> list[Pl
     return output
 
 
-def build_daily_playbook(calendar_path: str | Path, target_date: date, symbol: str, impact: str | None = None, country: str | None = None, top: int = 20, cluster_window_minutes: int = 5) -> DailyPlaybook:
+def build_daily_playbook(
+    calendar_path: str | Path,
+    target_date: date,
+    symbol: str,
+    impact: str | None = None,
+    country: str | None = None,
+    top: int = 20,
+    cluster_window_minutes: int = 5,
+) -> DailyPlaybook:
     profile = get_symbol_profile(symbol)
     raw_events = load_manual_calendar_csv(calendar_path)
     events = [e for e in raw_events if e.scheduled_at is None or e.scheduled_at.date() == target_date]
@@ -220,9 +227,11 @@ def build_daily_playbook(calendar_path: str | Path, target_date: date, symbol: s
     playbook_events = sorted(playbook_events, key=_event_sort_key)[:top]
     clusters = _group_clusters(playbook_events, cluster_window_minutes)
     watchlist = list(dict.fromkeys(profile.confirmation_instruments))
+    global_confirmation = _confirmation(profile)
+    global_invalidation = _invalidation(profile)
 
     if playbook_events:
-        summary = f"Daily playbook built for {profile.symbol}. Highest-ranked events should be treated as volatility/catalyst windows, not automatic trades. Trade direction comes after actual deviation and confirmation."
+        summary = f"Daily playbook built for {profile.symbol}. Highest-ranked events are catalyst windows, not automatic trades. Final direction comes only after actual deviation and confirmation."
     else:
         summary = f"No matching events found for {target_date}."
 
@@ -235,26 +244,61 @@ def build_daily_playbook(calendar_path: str | Path, target_date: date, symbol: s
         clusters=clusters,
         summary=summary,
         watchlist=watchlist,
+        global_confirmation=global_confirmation,
+        global_invalidation=global_invalidation,
     )
 
 
+def _render_event_line(idx: int, item: PlaybookEvent, symbol: str) -> list[str]:
+    event = item.calendar_event
+    when = event.scheduled_at.isoformat() if event.scheduled_at else "unscheduled"
+    return [
+        f"\n{idx}. {when} — {event.country_code}/{event.event_code}: {event.name}",
+        f"- Impact / relevance: {event.impact} / {item.relevance_score}",
+        f"- Why it matters for {symbol}: {item.relevance_reason}",
+        f"- Pre-release framework: {item.preliminary_direction}",
+        f"- Forecast / previous: {event.forecast} / {event.previous}",
+        f"- Trader note: {item.trader_note}",
+    ]
+
+
 def render_daily_playbook(playbook: DailyPlaybook) -> str:
+    top_events = playbook.events[:5]
     lines = [
         f"Daily Macro Playbook — {playbook.target_date.isoformat()}",
         f"Symbol: {playbook.symbol} — {playbook.display_name}",
         f"Calendar: {playbook.source_calendar}",
         "",
-        "Playbook Summary:",
+        "Executive Summary:",
         playbook.summary,
         "",
-        "Core Trade Rule:",
-        "- This is a pre-release playbook. It identifies what to care about before the data prints.",
-        "- Do not treat the calendar event as a trade signal by itself.",
-        "- Final trade direction requires actual-vs-forecast or actual-vs-previous assessment plus confirmation from price, rates, USD/FX, volatility, and related proxies.",
-        "",
-        "Confirmation Watchlist:",
+        "Top Catalyst Windows:",
     ]
-    for item in playbook.watchlist:
+    if top_events:
+        for idx, item in enumerate(top_events, start=1):
+            event = item.calendar_event
+            when = event.scheduled_at.isoformat() if event.scheduled_at else "unscheduled"
+            lines.append(f"- {idx}. {when} {event.country_code}/{event.event_code} {event.name} [{event.impact}] relevance={item.relevance_score}")
+    else:
+        lines.append("- No matching events found.")
+
+    lines.extend(
+        [
+            "",
+            "Core Trade Rule:",
+            "- This is a pre-release playbook. It identifies what to care about before the data prints.",
+            "- Do not treat the calendar event as a trade signal by itself.",
+            "- Final trade direction requires actual-vs-forecast or actual-vs-previous assessment plus confirmation from price, rates, USD/FX, volatility, and related proxies.",
+            "",
+            "Global Confirmation Framework:",
+        ]
+    )
+    for item in playbook.global_confirmation:
+        lines.append(f"- {item}")
+
+    lines.append("")
+    lines.append("Global Invalidation / No-Trade Framework:")
+    for item in playbook.global_invalidation:
         lines.append(f"- {item}")
 
     if playbook.clusters:
@@ -277,24 +321,5 @@ def render_daily_playbook(playbook: DailyPlaybook) -> str:
 
     lines.extend(["", "Ranked Event Plan:"])
     for idx, item in enumerate(playbook.events, start=1):
-        event = item.calendar_event
-        when = event.scheduled_at.isoformat() if event.scheduled_at else "unscheduled"
-        lines.extend(
-            [
-                f"\n{idx}. {when} — {event.country_code}/{event.event_code}: {event.name}",
-                f"- Impact: {event.impact}",
-                f"- Relevance score for {playbook.symbol}: {item.relevance_score}",
-                f"- Why it matters: {item.relevance_reason}",
-                f"- Pre-release directional framework: {item.preliminary_direction}",
-                f"- Forecast: {event.forecast}",
-                f"- Previous: {event.previous}",
-                f"- Trader note: {item.trader_note}",
-                "- Confirmation checklist:",
-            ]
-        )
-        for confirm in item.confirmation:
-            lines.append(f"  - {confirm}")
-        lines.append("- Invalidation / no-trade conditions:")
-        for invalid in item.invalidation:
-            lines.append(f"  - {invalid}")
+        lines.extend(_render_event_line(idx, item, playbook.symbol))
     return "\n".join(lines)
