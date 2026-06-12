@@ -9,6 +9,8 @@ from .calendar_sources import PUBLIC_CALENDAR_PRESETS, MultiSourceCalendar, Pres
 from .catalog import filter_catalog, list_countries
 from .diagnostics import run_calendar_diagnostics
 from .models import MacroRelease
+from .release_assessment import assess_release, render_release_assessment
+from .release_cluster import assess_release_cluster, render_cluster_assessment
 from .reports import render_post_release, render_pre_release
 from .scoring import classify_trade_bias, score_release
 from .sources import GenericHTMLCalendarSource, ManualCalendarCSVSource
@@ -31,6 +33,25 @@ def _parse_date(value: str | None) -> date:
 
 def _parse_sources(value: str | None) -> list[str] | None:
     return [x.strip() for x in value.split(",") if x.strip()] if value else None
+
+
+def _parse_cluster_events(value: str) -> list[str]:
+    return [x.strip().upper() for x in value.split(",") if x.strip()]
+
+
+def _parse_cluster_values(value: str | None, count: int) -> list[float | None]:
+    if value is None:
+        return [None] * count
+    raw = [x.strip() for x in value.split(",")]
+    values: list[float | None] = []
+    for item in raw:
+        if item == "" or item.lower() in {"none", "na", "n/a", "null"}:
+            values.append(None)
+        else:
+            values.append(float(item))
+    if len(values) != count:
+        raise SystemExit(f"Expected {count} comma-separated values, got {len(values)}")
+    return values
 
 
 def cmd_countries(_: argparse.Namespace) -> None:
@@ -136,6 +157,37 @@ def _release_from_args(args: argparse.Namespace) -> MacroRelease:
     )
 
 
+def cmd_assess_release(args: argparse.Namespace) -> None:
+    assessment = assess_release(_release_from_args(args))
+    if args.json:
+        print(json.dumps(asdict(assessment), indent=2, default=str))
+        return
+    print(render_release_assessment(assessment))
+
+
+def cmd_assess_cluster(args: argparse.Namespace) -> None:
+    events = _parse_cluster_events(args.events)
+    actuals = _parse_cluster_values(args.actuals, len(events))
+    forecasts = _parse_cluster_values(args.forecasts, len(events))
+    previous_values = _parse_cluster_values(args.previous, len(events))
+    releases = [
+        MacroRelease(
+            country_code=args.country.upper(),
+            event_code=event_code,
+            actual=actuals[i],
+            forecast=forecasts[i],
+            previous=previous_values[i],
+            source="manual_cli_cluster",
+        )
+        for i, event_code in enumerate(events)
+    ]
+    cluster = assess_release_cluster(releases)
+    if args.json:
+        print(json.dumps(asdict(cluster), indent=2, default=str))
+        return
+    print(render_cluster_assessment(cluster))
+
+
 def cmd_score(args: argparse.Namespace) -> None:
     result = score_release(_release_from_args(args))
     if args.json:
@@ -214,6 +266,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_pre.add_argument("--country", required=True)
     p_pre.add_argument("--event", required=True)
     p_pre.set_defaults(func=cmd_pre)
+
+    p_assess = sub.add_parser("assess-release", help="Render a detailed actual news announcement assessment")
+    _add_release_args(p_assess)
+    p_assess.set_defaults(func=cmd_assess_release)
+
+    p_cluster = sub.add_parser("assess-cluster", help="Assess several releases published together")
+    p_cluster.add_argument("--country", required=True)
+    p_cluster.add_argument("--events", required=True, help="Comma-separated event codes, e.g. CPI,CORE_CPI")
+    p_cluster.add_argument("--actuals", required=True, help="Comma-separated actual values")
+    p_cluster.add_argument("--forecasts", default=None, help="Comma-separated forecast values; use blank/none for missing")
+    p_cluster.add_argument("--previous", default=None, help="Comma-separated previous values; use blank/none for missing")
+    p_cluster.add_argument("--json", action="store_true")
+    p_cluster.set_defaults(func=cmd_assess_cluster)
 
     p_score = sub.add_parser("score", help="Score a macro release")
     _add_release_args(p_score)
