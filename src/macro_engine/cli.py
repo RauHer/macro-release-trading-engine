@@ -5,6 +5,7 @@ import json
 from dataclasses import asdict
 from datetime import date
 
+from .calendar_sources import PUBLIC_CALENDAR_PRESETS, MultiSourceCalendar, PresetCalendarSource, build_preset_sources
 from .catalog import filter_catalog, list_countries
 from .models import MacroRelease
 from .reports import render_post_release, render_pre_release
@@ -32,6 +33,13 @@ def cmd_countries(_: argparse.Namespace) -> None:
         print(f"{c.code:<2}  {c.name:<16} {c.currency:<3}  {c.central_bank}")
 
 
+def cmd_sources(_: argparse.Namespace) -> None:
+    for key, preset in PUBLIC_CALENDAR_PRESETS.items():
+        print(f"{key:<18} {preset.name}")
+        print(f"{'':<18} {preset.url}")
+        print(f"{'':<18} {preset.notes}")
+
+
 def cmd_catalog(args: argparse.Namespace) -> None:
     events = filter_catalog(country_code=args.country, impact=args.impact)
     for e in events:
@@ -43,26 +51,52 @@ def cmd_pre(args: argparse.Namespace) -> None:
     print(render_pre_release(args.country, args.event))
 
 
+def _filter_calendar_events(events, args):
+    if args.country:
+        events = [e for e in events if e.country_code == args.country.upper()]
+    if args.impact:
+        events = [e for e in events if e.impact.lower() == args.impact.lower()]
+    return events
+
+
+def _preview_calendar(events, preview: int) -> None:
+    for e in events[:preview]:
+        when = e.scheduled_at.isoformat() if e.scheduled_at else "unscheduled"
+        print(f"{when:<25} {e.country_code:<2} {e.event_code:<24} {e.impact:<6} {e.name} [{e.source}]")
+
+
 def cmd_calendar_import(args: argparse.Namespace) -> None:
     target = _parse_date(args.date)
     if args.csv:
         source = ManualCalendarCSVSource(args.csv)
     elif args.url:
         source = GenericHTMLCalendarSource(args.url, source_name=args.source_name or "generic_html")
+    elif args.preset:
+        source = PresetCalendarSource(args.preset)
     else:
-        raise SystemExit("calendar-import requires --csv or --url")
+        raise SystemExit("calendar-import requires --csv, --url, or --preset")
 
-    events = source.fetch_calendar(target)
-    if args.country:
-        events = [e for e in events if e.country_code == args.country.upper()]
-    if args.impact:
-        events = [e for e in events if e.impact.lower() == args.impact.lower()]
-
+    events = _filter_calendar_events(source.fetch_calendar(target), args)
     out_path = save_calendar_events(events, target, label=args.label or source.source_name)
     print(f"Imported {len(events)} events for {target} -> {out_path}")
-    for e in events[: args.preview]:
-        when = e.scheduled_at.isoformat() if e.scheduled_at else "unscheduled"
-        print(f"{when:<25} {e.country_code:<2} {e.event_code:<24} {e.impact:<6} {e.name}")
+    _preview_calendar(events, args.preview)
+
+
+def cmd_calendar_multi_import(args: argparse.Namespace) -> None:
+    target = _parse_date(args.date)
+    keys = args.sources.split(",") if args.sources else None
+    multi = MultiSourceCalendar(build_preset_sources(keys))
+    result = multi.fetch_calendar_result(target)
+    events = _filter_calendar_events(result.events, args)
+    out_path = save_calendar_events(events, target, label=args.label or "multi_source")
+    print(f"Imported {len(events)} deduped events for {target} -> {out_path}")
+    print("\nSource attempts:")
+    for attempt in result.attempts:
+        status = "OK" if attempt.ok else "FAIL"
+        detail = f"{attempt.events} events" if attempt.ok else attempt.error
+        print(f"- {attempt.source:<18} {status:<4} {detail}")
+    print("\nPreview:")
+    _preview_calendar(events, args.preview)
 
 
 def cmd_calendar_view(args: argparse.Namespace) -> None:
@@ -119,6 +153,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_countries = sub.add_parser("countries", help="List supported G10 countries")
     p_countries.set_defaults(func=cmd_countries)
 
+    p_sources = sub.add_parser("sources", help="List built-in public calendar source presets")
+    p_sources.set_defaults(func=cmd_sources)
+
     p_catalog = sub.add_parser("catalog", help="List macro event catalog")
     p_catalog.add_argument("--country", default=None)
     p_catalog.add_argument("--impact", choices=["high", "medium", "low"], default=None)
@@ -130,16 +167,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_calendar_view.add_argument("--impact", choices=["high", "medium", "low"], default=None)
     p_calendar_view.set_defaults(func=cmd_calendar_view)
 
-    p_calendar_import = sub.add_parser("calendar-import", help="Import economic calendar events from CSV or generic HTML table URL")
+    p_calendar_import = sub.add_parser("calendar-import", help="Import economic calendar events from CSV, URL, or named preset")
     p_calendar_import.add_argument("--date", default=None, help="Target date YYYY-MM-DD; default today")
     p_calendar_import.add_argument("--csv", default=None, help="Normalized CSV calendar file")
     p_calendar_import.add_argument("--url", default=None, help="Public HTML page containing ordinary calendar tables")
+    p_calendar_import.add_argument("--preset", choices=sorted(PUBLIC_CALENDAR_PRESETS), default=None)
     p_calendar_import.add_argument("--source-name", default=None)
     p_calendar_import.add_argument("--label", default=None, help="Output file label")
     p_calendar_import.add_argument("--country", default=None)
     p_calendar_import.add_argument("--impact", choices=["high", "medium", "low"], default=None)
     p_calendar_import.add_argument("--preview", type=int, default=25)
     p_calendar_import.set_defaults(func=cmd_calendar_import)
+
+    p_multi = sub.add_parser("calendar-multi-import", help="Try several public calendar presets and dedupe results")
+    p_multi.add_argument("--date", default=None, help="Target date YYYY-MM-DD; default today")
+    p_multi.add_argument("--sources", default=None, help="Comma-separated preset keys; default all presets")
+    p_multi.add_argument("--label", default=None)
+    p_multi.add_argument("--country", default=None)
+    p_multi.add_argument("--impact", choices=["high", "medium", "low"], default=None)
+    p_multi.add_argument("--preview", type=int, default=25)
+    p_multi.set_defaults(func=cmd_calendar_multi_import)
 
     p_pre = sub.add_parser("pre", help="Render a pre-release playbook")
     p_pre.add_argument("--country", required=True)
