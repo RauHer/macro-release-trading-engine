@@ -8,6 +8,7 @@ from typing import Any
 
 from .calendar_sources import PUBLIC_CALENDAR_PRESETS, MultiSourceCalendar, PresetCalendarSource, build_preset_sources
 from .catalog import filter_catalog, list_countries
+from .daily_playbook import build_daily_playbook, render_daily_playbook
 from .diagnostics import run_calendar_diagnostics
 from .models import MacroRelease
 from .release_assessment import assess_release, render_release_assessment
@@ -222,6 +223,23 @@ def cmd_symbol_impact(args: argparse.Namespace) -> None:
     print(render_symbol_impact(report))
 
 
+def cmd_daily_playbook(args: argparse.Namespace) -> None:
+    target = _parse_date(args.date)
+    playbook = build_daily_playbook(
+        calendar_path=args.calendar,
+        target_date=target,
+        symbol=args.symbol,
+        impact=args.impact,
+        country=args.country,
+        top=args.top,
+        cluster_window_minutes=args.cluster_window_minutes,
+    )
+    if args.json:
+        print(json.dumps(asdict(playbook), indent=2, default=str))
+        return
+    print(render_daily_playbook(playbook))
+
+
 def cmd_score(args: argparse.Namespace) -> None:
     result = score_release(_release_from_args(args))
     if args.json:
@@ -327,6 +345,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_symbol.add_argument("--forecasts", default=None, help="Cluster mode: comma-separated forecasts")
     p_symbol.add_argument("--json", action="store_true")
     p_symbol.set_defaults(func=cmd_symbol_impact)
+
+    p_playbook = sub.add_parser("daily-playbook", help="Build a pre-release daily macro playbook for a queried symbol")
+    p_playbook.add_argument("--date", default=None, help="Target date YYYY-MM-DD; default today")
+    p_playbook.add_argument("--symbol", required=True, help="Trading symbol, e.g. NQ, ES, RTY, DXY, EURUSD, NVDA")
+    p_playbook.add_argument("--calendar", required=True, help="Imported normalized calendar CSV")
+    p_playbook.add_argument("--country", default=None, help="Optional country filter")
+    p_playbook.add_argument("--impact", choices=["high", "medium", "low"], default=None)
+    p_playbook.add_argument("--top", type=int, default=20)
+    p_playbook.add_argument("--cluster-window-minutes", type=int, default=5)
+    p_playbook.add_argument("--json", action="store_true")
+    p_playbook.set_defaults(func=cmd_daily_playbook)
 
     p_score = sub.add_parser("score", help="Score a macro release")
     _add_release_args(p_score)
