@@ -214,31 +214,38 @@ def _infer_country_code(row: pd.Series, colmap: dict[str, str]) -> str:
 
 def _infer_event_code(name: str) -> str:
     n = name.lower()
-    for event in CATALOG:
-        if event.event_code.lower() in n or event.name.lower() in n:
-            return event.event_code
+    # Specific patterns must come before broad catalog-name matching.
     patterns = [
+        ("INFLATION_EXPECTATIONS", ["inflation expectations", "mi inflation expectations", "consumer inflation expectations"]),
         ("CORE_CPI", ["core cpi", "core consumer price"]),
         ("CPI", ["cpi", "consumer price", "inflation rate"]),
         ("PPI", ["ppi", "producer price"]),
         ("GDP", ["gdp", "gross domestic"]),
-        ("UNEMPLOYMENT", ["unemployment", "jobless rate"]),
-        ("EMPLOYMENT_CHANGE", ["payroll", "employment change", "jobs", "employment"]),
+        ("JOBLESS_CLAIMS", ["unemployment claims", "jobless claims", "initial claims", "continuing claims"]),
+        ("UNEMPLOYMENT", ["unemployment rate", "jobless rate"]),
+        ("EMPLOYMENT_CHANGE", ["non-farm", "nonfarm", "payroll", "employment change", "jobs", "employment"]),
         ("WAGES", ["wage", "earnings", "labor cost", "labour cost"]),
         ("RETAIL_SALES", ["retail sales"]),
-        ("PMI_MFG", ["manufacturing pmi", "factory pmi"]),
+        ("PMI_MFG", ["manufacturing pmi", "factory pmi", "businessnz manufacturing"]),
         ("PMI_SERVICES", ["services pmi", "service pmi"]),
-        ("CENTRAL_BANK_RATE", ["rate decision", "interest rate", "policy rate"]),
-        ("CENTRAL_BANK_STATEMENT", ["statement", "press conference"]),
+        ("CENTRAL_BANK_RATE", ["main refinancing rate", "rate decision", "interest rate", "policy rate", "cash rate", "official cash rate"]),
+        ("CENTRAL_BANK_STATEMENT", ["monetary policy statement", "press conference", "rate statement", "policy statement", "statement"]),
         ("CENTRAL_BANK_MINUTES", ["minutes"]),
+        ("BUILDING_PERMITS", ["building permits"]),
+        ("HOUSING", ["housing", "starts"]),
         ("INDUSTRIAL_PRODUCTION", ["industrial production"]),
         ("TRADE_BALANCE", ["trade balance"]),
-        ("HOUSING", ["housing", "building permits", "starts"]),
         ("CONFIDENCE", ["confidence", "sentiment"]),
+        ("BOND_AUCTION", ["bond auction", "note auction", "bill auction", "30-y", "10-y", "5-y", "2-y"]),
+        ("ENERGY_INVENTORIES", ["natural gas storage", "crude oil inventories", "oil inventories", "energy inventories"]),
+        ("TOURISM", ["visitor arrivals", "tourism"]),
     ]
     for code, needles in patterns:
         if any(x in n for x in needles):
             return code
+    for event in CATALOG:
+        if event.event_code.lower() in n or event.name.lower() in n:
+            return event.event_code
     return "UNKNOWN"
 
 
