@@ -7,6 +7,7 @@ from datetime import date
 
 from .calendar_sources import PUBLIC_CALENDAR_PRESETS, MultiSourceCalendar, PresetCalendarSource, build_preset_sources
 from .catalog import filter_catalog, list_countries
+from .diagnostics import run_calendar_diagnostics
 from .models import MacroRelease
 from .reports import render_post_release, render_pre_release
 from .scoring import classify_trade_bias, score_release
@@ -28,6 +29,10 @@ def _parse_date(value: str | None) -> date:
     return date.fromisoformat(value) if value else date.today()
 
 
+def _parse_sources(value: str | None) -> list[str] | None:
+    return [x.strip() for x in value.split(",") if x.strip()] if value else None
+
+
 def cmd_countries(_: argparse.Namespace) -> None:
     for c in list_countries():
         print(f"{c.code:<2}  {c.name:<16} {c.currency:<3}  {c.central_bank}")
@@ -37,6 +42,7 @@ def cmd_sources(_: argparse.Namespace) -> None:
     for key, preset in PUBLIC_CALENDAR_PRESETS.items():
         print(f"{key:<18} {preset.name}")
         print(f"{'':<18} {preset.url}")
+        print(f"{'':<18} Adapter: {preset.adapter}")
         print(f"{'':<18} {preset.notes}")
 
 
@@ -84,7 +90,7 @@ def cmd_calendar_import(args: argparse.Namespace) -> None:
 
 def cmd_calendar_multi_import(args: argparse.Namespace) -> None:
     target = _parse_date(args.date)
-    keys = args.sources.split(",") if args.sources else None
+    keys = _parse_sources(args.sources)
     multi = MultiSourceCalendar(build_preset_sources(keys))
     result = multi.fetch_calendar_result(target)
     events = _filter_calendar_events(result.events, args)
@@ -97,6 +103,17 @@ def cmd_calendar_multi_import(args: argparse.Namespace) -> None:
         print(f"- {attempt.source:<18} {status:<4} {detail}")
     print("\nPreview:")
     _preview_calendar(events, args.preview)
+
+
+def cmd_calendar_diagnostics(args: argparse.Namespace) -> None:
+    target = _parse_date(args.date)
+    path, attempts, deduped_events = run_calendar_diagnostics(target, _parse_sources(args.sources))
+    print(f"Diagnostics saved -> {path}")
+    print(f"Deduped events: {deduped_events}")
+    for attempt in attempts:
+        status = "OK" if attempt.ok else "FAIL"
+        detail = f"{attempt.events} events" if attempt.ok else attempt.error
+        print(f"- {attempt.source:<18} {status:<4} {detail}")
 
 
 def cmd_calendar_view(args: argparse.Namespace) -> None:
@@ -187,6 +204,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_multi.add_argument("--impact", choices=["high", "medium", "low"], default=None)
     p_multi.add_argument("--preview", type=int, default=25)
     p_multi.set_defaults(func=cmd_calendar_multi_import)
+
+    p_diag = sub.add_parser("calendar-diagnostics", help="Probe calendar sources and write a diagnostics report")
+    p_diag.add_argument("--date", default=None, help="Target date YYYY-MM-DD; default today")
+    p_diag.add_argument("--sources", default=None, help="Comma-separated preset keys; default all presets")
+    p_diag.set_defaults(func=cmd_calendar_diagnostics)
 
     p_pre = sub.add_parser("pre", help="Render a pre-release playbook")
     p_pre.add_argument("--country", required=True)
